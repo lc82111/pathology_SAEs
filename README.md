@@ -45,12 +45,12 @@ botched = sae.surgery(acts, k=12 strength=42.)
 Here are a few interesting facts from [linear algebra](https://en.wikipedia.org/wiki/Orthonormal_basis):
 
 1. An inverse of an orthonormal matrix is its transpose. (i.e. $A^{-1} = A^T$)
-2. Given a set of orthonormal basis, the projection of a vector $v$ onto the basis is given by $v \cdot b_i$ where $b_i$ is the basis vector.
+2. Given a set of orthonormal basis, the projection of a vector $v$ onto the basis is given by $\langle v, b_i \rangle$ where $b_i$ is the basis vector.
 
 Above facts justify why it's natural to:
 
 1. Tie encoder and decoder weights in SAE (i.e. $W_{enc} = W_{dec}^T$). We want to the SAE to reconstruct the input well.
-2. One can interpret the output of encoder ($W_{enc} x$) as coordinates of $x$ under orthnormal basis given by encoder matrix rows.
+2. One can interpret the output of encoder ($W_{enc} \cdot x$) as coordinates of $x$ under orthnormal basis given by encoder matrix rows.
 3. Intuitively, orthnormal basis contains no "redundant" information since they are orthogonal to each other.
 
 ## Open research questions
