@@ -42,12 +42,13 @@ cc3m-transformer_blocks.18-1
 
 ```python
 from PIL import Image
-from transformers import CLIPVisualModel, AutoProcessor
+from transformers import CLIPTextModel, CLIPVisionModel, AutoProcessor
 from autoencoder import TopkSparseAutoencoder
 
 vsae = TopkSparseAutoencoder.from_pretrained("cc3m-vision-topk-lr-3e-4-k-4-expansion-4")
 tsae = TopkSparseAutoencoder.from_pretrained("cc3m-text-topk-lr-3e-4-k-4-expansion-4")
-vision = CLIPVisualModel.from_pretrained("openai/clip-vit-large-patch14")
+vision = CLIPVisionModel.from_pretrained("openai/clip-vit-large-patch14")
+text = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14")
 processor = AutoProcessor.from_pretrained("openai/clip-vit-large-patch14")
 
 image = Image.open("cat.jpg")
