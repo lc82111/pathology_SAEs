@@ -14,30 +14,63 @@ This is a work in progress. Feel free to open an issue or rearch out to me via s
 3. `notebooks/saevis.ipynb` : Contains minimal code to fetch topk activating samples for each SAE feature.
 4. `scripts/conversion.py`: Contains script to download CC3M dataset from HF and load images. The script also provides utils for extracting CLIP activations and saving them to safetensors format.
 
-## Quickstart
+## Available checkpoints
+
+```python
+# CLIP SAEs on text pooled activations
+cc3m-text-topk-lr-3e-4-k-4-expansion-4
+cc3m-text-topk-lr-3e-4-k-16-expansion-4
+cc3m-text-topk-lr-3e-4-k-64-expansion-4
+cc3m-text-topk-lr-3e-4-k-128-expansion-4
+
+# CLIP SAEs on vision activations (penultimate layer)
+cc3m-vision-topk-lr-3e-4-k-4-expansion-4
+cc3m-vision-topk-lr-3e-4-k-16-expansion-4
+cc3m-vision-topk-lr-3e-4-k-64-expansion-4
+cc3m-vision-topk-lr-3e-4-k-128-expansion-4
+
+# FLUX SAES on block outputs
+cc3m-single_transformer_blocks.9
+cc3m-single_transformer_blocks.37
+cc3m-transformer_blocks.0-0
+cc3m-transformer_blocks.0-1
+cc3m-transformer_blocks.18-0
+cc3m-transformer_blocks.18-1
+```
+
+## Quickstart for CLIP SAEs
 
 ```python
 from PIL import Image
 from transformers import CLIPVisualModel, AutoProcessor
 from autoencoder import TopkSparseAutoencoder
 
-sae = TopkSparseAutoencoder.from_pretrained("cc3m-text-topk-lr-3e-4-k-4-expansion-4")
+vsae = TopkSparseAutoencoder.from_pretrained("cc3m-vision-topk-lr-3e-4-k-4-expansion-4")
+tsae = TopkSparseAutoencoder.from_pretrained("cc3m-text-topk-lr-3e-4-k-4-expansion-4")
 vision = CLIPVisualModel.from_pretrained("openai/clip-vit-large-patch14")
 processor = AutoProcessor.from_pretrained("openai/clip-vit-large-patch14")
 
 image = Image.open("cat.jpg")
+text = "a photo of a cat"
 
+batch = processor(text=[text], images=[image], return_tensors="pt", truncation=True, padding=True)
 vision_outputs = vision(pixel_values=batch["pixel_values"], output_hidden_states=True)
-acts = vision_outputs.hidden_states[-2][:, 0, :]
+text_outputs = text(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
+
+tacts = text_outputs.pooler_output
+vacts = vision_outputs.hidden_states[-2][:, 0, :]
 
 # hidden states from SAE only topk activations are kept
-hiddens = sae.encode(acts)
+hiddens = vsae.encode(vacts)
+hiddens = tsae.encode(tacts)
 
 # decode the hidden states back to original activations
-reconstructed = sae.decode(hiddens)
+reconstructed = vsae.decode(hiddens)
+reconstructed = tsae.decode(hiddens)
 
 # increase 12th activation by 42 and return the reconstructed activations
-botched = sae.surgery(acts, k=12 strength=42.) 
+botched = vsae.surgery(vacts, k=12, strength=42.)
+botched = tsae.surgery(tacts, k=12, strength=42.)
 ```
 
 ## Why orthnormal constraints and initialisation?
@@ -70,6 +103,11 @@ Above facts justify why it's natural to:
 7. Ideally, if SAE training on flow matching models become reliable in extracting style, content, and composition features, we only have to train one good SAE model and never have to train a LoRA for each model.
 8. In some sense, MLPs are already SAEs. For instance, commonly used 4x GeLU MLPs are SAEs if you think about it. GLU is also a gated SAE in some sense.
 9. Steering the generation of FLUX using CLIP SAE / FLUX SAE seems ineffective. I've also found that zeroing out CLIP embeddings entirely didn't affect the generation much either. Although, this was done on a handful of examples. I wouldn't bet my money on it.
+
+## TODOs
+
+- [ ] Make FLUX SAEs more reliable. Try different sampling locations.
+- [ ] Look into sdxl-unbox paper on how they used SAEs for SDXL steering. Might have some insights.
 
 ## Acknowledgements
 
