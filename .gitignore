@@ -1,0 +1,14 @@
+*.safetensors
+*.pkl
+*.parquet
+*.jpg
+*.jpeg
+*.png
+*.jsonl
+run.sh
+checkpoints/
+data/
+wandb/
+visualisation/
+__pycache__/
+fluxacts
