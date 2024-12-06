@@ -425,6 +425,18 @@ def create_interactive_3d_plot(
     print(f"Interactive 3D plot saved to {output_file}")
     return fig
 
+# Add this after clustering is done
+def save_clustering_results(patient_ids, cluster_labels, output_file='cluster_assignments.csv'):
+    import pandas as pd
+    
+    df = pd.DataFrame({
+        'patient_id': patient_ids,
+        'cluster': cluster_labels
+    })
+    
+    df.to_csv(output_file, index=False)
+    print(f"Saved clustering results to {output_file}")
+
 
 if __name__ == "__main__":
     # Configuration
@@ -441,8 +453,8 @@ if __name__ == "__main__":
     sae_dir = './checkpoints/gigapath_sae_wsi2k'
     features_file = './scripts/Gigapath_embeddings.safetensors'
     pid_file = './scripts/Gigapath_ids.txt'
-    umap_embeddings_file = 'umap_embeddings2.npy'
-    cluster_labels_file = 'cluster_labels2.npy'
+    umap_embeddings_file = 'umap_embeddings.npy'
+    cluster_labels_file = 'cluster_labels.npy'
 
     # Load model and data
     sae = TopkSparseAutoencoder.from_pretrained(sae_dir)
@@ -450,10 +462,10 @@ if __name__ == "__main__":
         patient_ids = [line.strip() for line in f]
         patient_ids = np.array(patient_ids)
     dataset = SafeTensorDataset(Path(features_file), 'vision')
-    num_samples = len(dataset)
+    print('Total number of samples:', len(dataset))
     num_samples = 10000
-    print('Total number of samples:', num_samples)
     patient_ids = patient_ids[:num_samples] 
+    print(f'Use {num_samples} samples for visualization')
 
     dataloader = dataset.dataloader(
         batch_size=1024,
@@ -482,6 +494,8 @@ if __name__ == "__main__":
         np.save(cluster_labels_file, cluster_labels)
     else:
         cluster_labels = np.load(cluster_labels_file)
+
+    save_clustering_results(patient_ids, cluster_labels)
 
     # Create and log visualizations
     if config['umap__n_components'] == 3:
