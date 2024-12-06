@@ -39,22 +39,60 @@ class CC3M(Dataset):
 def cli():
     pass
 
-def get_dinov2_feature(data_root_dir="/mnt/disk16T/datasets/patholog/FD_data/Features/", dinov2_model_name='Gigapath'): 
+
+def get_dinov2_feature(data_root_dir="/mnt/nvme0n1p1/datasets/patholog/FD_data/Features/", dinov2_model_name='Gigapath'): 
     '''Return all features, labels and patient ID for all patients'''
     data_root_dir = Path(data_root_dir)
+
+    def _get_full_image_path(file_path_str):
+        """
+        Convert relative path 'pat_name/coord' to full image path, searching through subdirectories
+        
+        Args:
+            file_path_str: String in format 'pat_name/coord'
+        
+        Returns:
+            Full path to PNG file or None if not found
+        """
+        base_dir = Path("/mnt/nvme0n1p1/datasets/patholog/FD_data")
+        pat_name, coord = file_path_str.split('/')
+        
+        # Search through all subdirectories for patient folder
+        for subdir in base_dir.iterdir():
+            if not subdir.is_dir():
+                continue
+            
+            patient_dir = subdir / pat_name
+            if patient_dir.exists():
+                img_path = str(patient_dir / f"{coord}.png")
+                if Path(img_path).exists():
+                    return img_path
+                else:
+                    return None
+                
+        return None
 
     def _load_feats(root_dir, df):
         """Load features and coords from h5 files for all patients in the dataframe"""
         feats_list, files_list = [], []
         for patient_id in tqdm(df['PATIENT'], desc="Loading features"):
             path = Path(root_dir) / f"{patient_id}.h5"
-            with h5py.File(path, 'r') as file:
-                feats = file['feats'][:]
+            with h5py.File(path, 'r') as f:
+                feats = f['feats'][:]
                 feats_list.append(feats)
 
-                coords = file['coords'][:]
+                coords = f['coords'][:]
                 coords = [coord.decode('utf-8') for coord in coords]
-                files_list.append([f'{patient_id}/{coord}' for coord in coords])
+                full_paths = [f"{patient_id}/{coord}" for coord in coords]
+                # full_paths = []
+                # for coord in coords:
+                #     full_path = _get_full_image_path(f"{patient_id}/{coord}")
+                #     if full_path is None:
+                #         # raise FileNotFoundError(f"Image not found for {patient_id}/{coord}")
+                #         print(f"Image not found for {patient_id}/{coord}")
+                #     full_paths.append(full_path)
+
+                files_list.append(full_paths)
         return feats_list, files_list
    
     def _load_and_process(df):

@@ -9,6 +9,7 @@
 *.html
 *.txt
 *.csv
+.vscode/
 run.sh
 checkpoints/
 data/
