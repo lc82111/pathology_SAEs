@@ -463,14 +463,23 @@ if __name__ == "__main__":
         patient_ids = np.array(patient_ids)
     dataset = SafeTensorDataset(Path(features_file), 'vision')
     print('Total number of samples:', len(dataset))
-    num_samples = 10000
-    patient_ids = patient_ids[:num_samples] 
-    print(f'Use {num_samples} samples for visualization')
 
-    dataloader = dataset.dataloader(
+    # random sampling
+    num_samples = 100000
+    if num_samples > len(patient_ids):
+        num_samples = len(patient_ids)
+    
+    # Generate random indices and Select random subset of patient_ids
+    random_indices = np.random.choice(len(patient_ids), size=num_samples, replace=False)
+    patient_ids = patient_ids[random_indices]
+    dataset = torch.utils.data.Subset(dataset, random_indices)
+    print(f'Randomly selected {num_samples} samples for visualization')
+
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
         batch_size=1024,
         num_workers=0,
-        shuffle=True
+        shuffle=False
     )
 
     # Perform UMAP dimensionality reduction
