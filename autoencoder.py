@@ -426,7 +426,7 @@ class TopkTrainer:
         self.optimizer.zero_grad()
 
         b, f = x.shape
-        xhat, dictionary = self.sae(x, output_features=True)
+        xhat, dictionary = self.sae(x, output_features=True)  # (b, f), (b, p)
 
         cossim = torch.nn.CosineSimilarity(dim=-1)
         l2 = reduce((x - xhat) ** 2, "b f -> b", "sum").mean()
@@ -617,6 +617,9 @@ def train(**config):
     accelerator.init_trackers("sae", config=config, init_kwargs={"wandb":{"name":config["name"]}})
     
     match config["modality"], config["model"]:
+        case ("vision", "dinov2/cls_token"):
+            processor = None
+            model = None
         case ("text", "openai/clip-vit-base-patch32") | ("text", "openai/clip-vit-large-patch14"):
             tokenizer = AutoTokenizer.from_pretrained(config["model"])
             model = CLIPTextModel.from_pretrained(config["model"], attn_implementation="sdpa")
@@ -663,7 +666,7 @@ def train(**config):
         case "standard":
             trainer = StandardTrainer(sae, optimizer, scheduler, lmbda=config["lmbda"], lmbda_warmup_steps=config["lmbda_warmup_steps"], accelerator=accelerator)
         case "topk":
-            trainer = TopkTrainer(sae, optimizer, scheduler, pages=pages, auxk=config["auxk"], bodycount=config["bodycount"], accelerator=accelerator)
+            trainer = TopkTrainer(sae, optimizer, scheduler, pages=pages, auxk=config["auxk"], bodycount=config["bodycount"], normalise=config["normalise"], accelerator=accelerator)
         case "gated":
             trainer = GatedTrainer(sae, optimizer, scheduler, lmbda=config["lmbda"], lmbda_warmup_steps=config["lmbda_warmup_steps"], accelerator=accelerator)
         case "jumprelu":
@@ -678,6 +681,8 @@ def train(**config):
             sampler = TextPoolerActivationSampler(model, tokenizer, samples=None)
         case "vision":
             sampler = VisionActivationSampler(model, processor, layer=-2, samples=None)
+        case "none":
+            sampler = None
         case _:
             raise ValueError(f"Unknown sampler {config['sampler']}")
 
@@ -686,6 +691,7 @@ def train(**config):
         for batch in tqdm(dataloader):
             x = batch if config["dataset"] == "tensor" else sampler.sample(batch)
             trainer.step(x)
+        accelerator.log({"epoch": epoch})
 
     accelerator.wait_for_everyone()
 
@@ -698,29 +704,30 @@ def train(**config):
     accelerator.end_training()
 
 @click.command()
-@click.option("--name", type=str, help="Name of the run")
-@click.option("--model", type=str, default="openai/clip-vit-base-patch32")
+@click.option("--name", type=str, default='gigapath_sae_wsi2k', help="run name")
+@click.option("--model", type=str, default="dinov2/cls_token")
 @click.option("--dataset", type=str, default="tensor")
-@click.option("--tensorpath", type=str, default=None)
-@click.option("--tensorkey", type=str, default=None)
-@click.option("--arch", type=str, default="standard")
+@click.option("--tensorpath", type=str, default='./Gigapath_embeddings.safetensors')
+@click.option("--tensorkey", type=str, default='vision')
+@click.option("--arch", type=str, default="topk")
 @click.option("--modality", type=str, default="vision", help="Modality of the dataset. Either 'vision' or 'text'")
-@click.option("--sampler", type=str, default="text")
-@click.option("--num_workers", type=int, default=96)
+@click.option("--sampler", type=str, default="none")  # text, textpool, vision, none
+@click.option("--num_workers", type=int, default=20)
 @click.option("--num_epochs", type=int, default=10)
-@click.option("--batch_size", type=int, default=32)
-@click.option("--features", type=int, default=768)
-@click.option("--expansion", type=int, default=32)
+@click.option("--batch_size", type=int, default=2048)
+@click.option("--features", type=int, default=1536)  # gigapath features
+@click.option("--expansion", type=int, default=32) # pages = expansion * features
 @click.option("--lmbda", type=float, default=0.01)
-@click.option("--lr", type=float, default=5e-5)
+@click.option("--lr", type=float, default=1e-4)
 @click.option("--beta1", type=float, default=0.9)
 @click.option("--beta2", type=float, default=0.999)
 @click.option("--wd", type=float, default=0.)
 @click.option("--lmbda_warmup_steps", type=int, default=256)
 @click.option("--lr_warmup_steps", type=int, default=256)
-@click.option("--k", type=int, default=128)
-@click.option("--auxk", type=float, default=1/32)
-@click.option("--bodycount", type=int, default=16384)
+@click.option("--k", type=int, default=64) # top k for topk SAE: 128
+@click.option("--auxk", type=float, default=1/32) # not used
+@click.option("--bodycount", type=int, default=16384)  # not used
+@click.option("--normalise", type=bool, default=False)  # Unit norm constraint on decoder weights
 @click.option("--bandwidth", type=float, default=0.001)
 @click.option("--jumpthreshold", type=float, default=0.001)
 @click.option("--compile", type=bool, default=False)

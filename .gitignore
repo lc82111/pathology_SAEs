@@ -5,6 +5,9 @@
 *.jpeg
 *.png
 *.jsonl
+*.npy
+*.html
+*.txt
 run.sh
 checkpoints/
 data/

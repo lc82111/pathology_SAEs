@@ -1,5 +1,8 @@
 import io
 from pathlib import Path
+import pandas as pd
+import numpy as np
+import h5py
 
 import click
 from PIL import Image
@@ -35,6 +38,65 @@ class CC3M(Dataset):
 @click.group()
 def cli():
     pass
+
+def get_dinov2_feature(data_root_dir="/mnt/disk16T/datasets/patholog/FD_data/Features/", dinov2_model_name='Gigapath'): 
+    '''Return all features, labels and patient ID for all patients'''
+    data_root_dir = Path(data_root_dir)
+
+    def _load_feats(root_dir, df):
+        """Load features and coords from h5 files for all patients in the dataframe"""
+        feats_list, files_list = [], []
+        for patient_id in tqdm(df['PATIENT'], desc="Loading features"):
+            path = Path(root_dir) / f"{patient_id}.h5"
+            with h5py.File(path, 'r') as file:
+                feats = file['feats'][:]
+                feats_list.append(feats)
+
+                coords = file['coords'][:]
+                coords = [coord.decode('utf-8') for coord in coords]
+                files_list.append([f'{patient_id}/{coord}' for coord in coords])
+        return feats_list, files_list
+   
+    def _load_and_process(df):
+        feats, files = _load_feats(data_root_dir / dinov2_model_name, df)  # (n_patients, n_tiles, n_features), (n_patients, n_tiles)
+
+        labels = df['MSIStatus'].values # (n_patients,)
+        labels = np.repeat(labels, [feat.shape[0] for feat in feats], axis=0) # (n_patients, n_tiles) 
+        labels = labels.flatten() # (n_samples,)
+
+        feats = np.vstack([feat for feat in feats]) # reshape to (n_samples, n_features)
+        files = np.concatenate(files, axis=0).tolist() # (n_samples,)
+        return feats, labels, files
+
+    train_df = pd.read_csv(data_root_dir / 'train.csv')[['PATIENT', 'MSIStatus']]
+    val_df = pd.read_csv(data_root_dir / 'valid.csv')[['PATIENT', 'MSIStatus']]
+    test_df = pd.read_csv(data_root_dir / 'test.csv')[['PATIENT', 'MSIStatus']]
+
+    train_feats, train_labels, train_files = _load_and_process(train_df)
+    val_feats, val_labels, val_files = _load_and_process(val_df)
+    test_feats, test_labels, test_files = _load_and_process(test_df)
+
+    X = np.concatenate([train_feats, val_feats, test_feats], axis=0) # (n_samples, n_features)
+    y = np.concatenate([train_labels, val_labels, test_labels], axis=0) # (n_samples,)
+    files = train_files + val_files + test_files # (n_samples,)
+
+    return torch.tensor(X), torch.tensor(y), files
+
+@cli.command("write_dinov2")
+def write_dinov2(dinov2_model_name='Gigapath'):
+    X, y, fns = get_dinov2_feature(dinov2_model_name=dinov2_model_name) 
+
+    # (n_samples, n_features), (n_samples,), (n_samples,)
+    print(f"X: {X.shape}, y: {y.shape}, file names: {len(fns)}")
+
+    # save embeddings to a safetensor file
+    save_file(tensors={ "vision": X, "label": y}, filename=f"./{dinov2_model_name}_embeddings.safetensors")
+    print(f"Saved {dinov2_model_name} embeddings to {dinov2_model_name}_embeddings.safetensors")
+
+    # save ids to a txt file
+    with open(f"{dinov2_model_name}_ids.txt", "w") as f:
+        f.write("\n".join(fns))
+    print(f"Saved {dinov2_model_name} ids to {dinov2_model_name}_ids.txt")
 
 # for generating clip embeddings on cc3m and saving them to safetensor file
 @cli.command("embed")
