@@ -8,6 +8,7 @@
 *.npy
 *.html
 *.txt
+*.csv
 run.sh
 checkpoints/
 data/
