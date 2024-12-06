@@ -11,7 +11,7 @@ import umap
 from tqdm import tqdm
 from pathlib import Path
 from autoencoder import TopkSparseAutoencoder
-from datalib import SafeTensorDataset
+from datalib import MySafeTensorDataset
 import cuml
 import cupy as cp
 
@@ -85,7 +85,8 @@ def umap_reduce(
     # Extract features
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Extracting SAE features"):
-            batch = batch.to(device)
+            feats, labels = batch
+            batch = feats.to(device)
             encoded_acts, tops_acts, top_indices = sae.encode(batch, return_topk=True)
 
             encoded_acts_sparse = create_sparse_array(
@@ -269,7 +270,7 @@ def visualize_clusters_3d(
     plt.savefig(output_file, dpi=300, bbox_inches='tight', pad_inches=0.5)
     plt.close()
 
-def create_interactive_3d_plot(
+def create_interactive_3d_plot_back(
     embeddings: np.ndarray,
     cluster_labels: np.ndarray,
     patient_ids: np.ndarray,  # Add patient_ids parameter
@@ -425,7 +426,176 @@ def create_interactive_3d_plot(
     print(f"Interactive 3D plot saved to {output_file}")
     return fig
 
-# Add this after clustering is done
+def create_interactive_3d_plot(
+    embeddings: np.ndarray,
+    cluster_labels: np.ndarray,
+    sample_labels: np.ndarray,
+    patient_ids: np.ndarray,
+    output_file: str = 'umap_3d_plot.html',
+    sample_size: int = None
+):
+    import plotly.graph_objects as go
+
+    # Sample points if specified
+    if sample_size and sample_size < len(embeddings):
+        indices = np.random.choice(len(embeddings), sample_size, replace=False)
+        embeddings = embeddings[indices]
+        cluster_labels = cluster_labels[indices]
+        sample_labels = sample_labels[indices]
+        patient_ids = patient_ids[indices]
+
+    # Create figure
+    fig = go.Figure()
+
+    # Create distinct colors for clusters
+    unique_clusters = np.unique(cluster_labels)
+    num_clusters = len(unique_clusters)
+    colormap = plt.cm.nipy_spectral(np.linspace(0, 1, num_clusters))
+    
+    # Create color mapping
+    cluster_colors = []
+    for label in cluster_labels:
+        idx = np.where(unique_clusters == label)[0][0]
+        color = colormap[idx][:3]  # Get RGB values
+        cluster_colors.append(f'rgb({int(color[0]*255)},{int(color[1]*255)},{int(color[2]*255)})')
+
+
+    # Create two traces - one for each coloring scheme
+    # Cluster coloring
+    hover_text = [
+        f"PID: {pid}<br>Label: {label}<br>Cluster: {clust}" 
+        for pid, label, clust in zip(patient_ids, sample_labels, cluster_labels)
+    ]
+    
+    cluster_scatter = go.Scatter3d(
+        x=embeddings[:, 0],
+        y=embeddings[:, 1],
+        z=embeddings[:, 2],
+        mode='markers',
+        marker=dict(
+            size=5,
+            color=cluster_colors,
+            colorscale='Viridis',
+            opacity=0.7,
+            showscale=True,
+            colorbar=dict(title="Clusters")
+        ),
+        text=hover_text,
+        hoverinfo='text',
+        name='Clusters',
+        visible=True
+    )
+
+    # Label coloring
+    label_scatter = go.Scatter3d(
+        x=embeddings[:, 0],
+        y=embeddings[:, 1],
+        z=embeddings[:, 2],
+        mode='markers',
+        marker=dict(
+            size=5,
+            color=sample_labels,
+            colorscale='Plasma',
+            opacity=0.7,
+            showscale=True,
+            colorbar=dict(title="Labels")
+        ),
+        text=hover_text,
+        hoverinfo='text',
+        name='Labels',
+        visible=False
+    )
+
+    fig.add_trace(cluster_scatter)
+    fig.add_trace(label_scatter)
+
+    # Create buttons for switching color schemes
+    updatemenus = [
+        # Color scheme selector
+        dict(
+            buttons=[
+                dict(
+                    args=[{"visible": [True, False]}],
+                    label="Color by Clusters",
+                    method="update"
+                ),
+                dict(
+                    args=[{"visible": [False, True]}],
+                    label="Color by Labels",
+                    method="update"
+                )
+            ],
+            direction="down",
+            showactive=True,
+            x=0.1,
+            y=1.1,
+            xanchor="left",
+            yanchor="top"
+        ),
+        # View angles selector
+        dict(
+            type='buttons',
+            showactive=False,
+            buttons=[
+                dict(
+                    args=[{
+                        'scene.camera': dict(
+                            up=dict(x=0, y=0, z=1),
+                            center=dict(x=0, y=0, z=0),
+                            eye=dict(x=eye['x'], y=eye['y'], z=eye['z'])
+                        )
+                    }],
+                    label=name,
+                    method='relayout'
+                )
+                for name, eye in {
+                    'Default View': dict(x=1.5, y=1.5, z=1.5),
+                    'Top View': dict(x=0, y=0, z=2.5),
+                    'Side View 1': dict(x=2.5, y=0, z=0),
+                    'Side View 2': dict(x=0, y=2.5, z=0)
+                }.items()
+            ],
+            x=0.9,
+            y=1.1,
+            xanchor="right",
+            yanchor="top"
+        )
+    ]
+
+    # Update layout
+    fig.update_layout(
+        updatemenus=updatemenus,
+        scene=dict(
+            xaxis_title='UMAP 1',
+            yaxis_title='UMAP 2',
+            zaxis_title='UMAP 3'
+        ),
+        title='UMAP 3D Visualization',
+        width=1200,
+        height=800,
+        scene_aspectmode='cube'
+    )
+
+    # Add controls annotation
+    fig.add_annotation(
+        text='Controls:<br>- Left click + drag: Rotate<br>- Right click + drag: Pan<br>- Mouse wheel: Zoom',
+        align='left',
+        showarrow=False,
+        xref='paper',
+        yref='paper',
+        x=0,
+        y=1.1,
+        bordercolor='black',
+        borderwidth=1,
+        bgcolor='white',
+        opacity=0.8
+    )
+
+    fig.write_html(output_file)
+    print(f"Interactive 3D plot saved to {output_file}")
+    return fig
+
+
 def save_clustering_results(patient_ids, cluster_labels, output_file='cluster_assignments.csv'):
     import pandas as pd
     
@@ -461,7 +631,7 @@ if __name__ == "__main__":
     with open(pid_file, 'r') as f:
         patient_ids = [line.strip() for line in f]
         patient_ids = np.array(patient_ids)
-    dataset = SafeTensorDataset(Path(features_file), 'vision')
+    dataset = MySafeTensorDataset(Path(features_file))
     print('Total number of samples:', len(dataset))
 
     # random sampling
@@ -508,7 +678,9 @@ if __name__ == "__main__":
 
     # Create and log visualizations
     if config['umap__n_components'] == 3:
-        visualize_clusters_3d(umap_embeddings, cluster_labels)
-        create_interactive_3d_plot(umap_embeddings, cluster_labels, patient_ids)
+        # visualize_clusters_3d(umap_embeddings, cluster_labels)
+        msi_labels = [dataset[i][1] for i in range(len(dataset))]
+        msi_labels = np.array(msi_labels)  # (n_samples,)
+        create_interactive_3d_plot(umap_embeddings, cluster_labels, msi_labels, patient_ids)
     else:
         visualize_clusters(umap_embeddings, cluster_labels)

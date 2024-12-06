@@ -8,6 +8,24 @@ from safetensors import safe_open
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoModel, AutoProcessor, AutoTokenizer
 
+class MySafeTensorDataset(Dataset):
+    def __init__(self, path:Path):
+        with safe_open(path, framework="pt") as f:
+            self.data = f.get_tensor("vision")
+            self.label = f.get_tensor("label")
+            assert len(self.data) == len(self.label)
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        data = self.data[idx]
+        label = self.label[idx]
+        return data, label
+    
+    def dataloader(self, **kwargs):
+        return DataLoader(self, **kwargs)
+ 
 
 class SafeTensorDataset(Dataset):
     def __init__(self, path:Path, key:str):
