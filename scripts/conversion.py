@@ -1,4 +1,5 @@
 import io
+import json
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -39,59 +40,63 @@ class CC3M(Dataset):
 def cli():
     pass
 
+@cli.command("create_intersection_between_h5_png")
+def create_intersection_between_h5_png(h5_path, png_path):
+    base_dir = Path("/mnt/nvme0n1p1/datasets/patholog/FD_data")
+
+    # png files on disk
+    json_file = base_dir / 'FDMSI_patches_359277_slides_484.json'
+    png_paths = []
+    with open(json_file, 'r') as f:
+        data = json.load(f)
+        for pid, coords in data.items():  # {'WSI path': [tile1_name, ...]}
+            for coords in coords:
+                png_paths.append(f"{pid}/{coords}")
+
+    # h5 files on disk
+    gigapath_feat_dir = base_dir/'Features/Gigapath' 
+    h5_paths = [f.stem for f in gigapath_feat_dir.glob('*.h5')]    
+
+    found_list, miss_list = [], []
+    for pid in tqdm(h5_paths, desc="find PID/coords in h5"):
+        with h5py.File(pid, 'r') as f:
+            coords = f['coords'][:]
+            coords = [coord.decode('utf-8') for coord in coords]
+            for coord in coords:
+                h5_path = f"{pid}/{coord}"
+                for png_path in png_paths:
+                    pair = {'h5_path':h5_path, 'png_path':png_path}
+                    if pid in png_path and coord in png_path:
+                        found_list.append(pair)
+                    else:
+                        miss_list.append(pair)
+
+    # save output to json
+    with open('h5_png_intersection_found.json', 'w') as f:
+        json.dump(found_list, f)
+    with open('h5_png_intersection_miss.json', 'w') as f:
+        json.dump(miss_list, f)
+    print('done')
+
 
 def get_dinov2_feature(data_root_dir="/mnt/nvme0n1p1/datasets/patholog/FD_data/Features/", dinov2_model_name='Gigapath'): 
     '''Return all features, labels and patient ID for all patients'''
     data_root_dir = Path(data_root_dir)
 
-    def _get_full_image_path(file_path_str):
-        """
-        Convert relative path 'pat_name/coord' to full image path, searching through subdirectories
-        
-        Args:
-            file_path_str: String in format 'pat_name/coord'
-        
-        Returns:
-            Full path to PNG file or None if not found
-        """
-        base_dir = Path("/mnt/nvme0n1p1/datasets/patholog/FD_data")
-        pat_name, coord = file_path_str.split('/')
-        
-        # Search through all subdirectories for patient folder
-        for subdir in base_dir.iterdir():
-            if not subdir.is_dir():
-                continue
-            
-            patient_dir = subdir / pat_name
-            if patient_dir.exists():
-                img_path = str(patient_dir / f"{coord}.png")
-                if Path(img_path).exists():
-                    return img_path
-                else:
-                    return None
-                
-        return None
-
     def _load_feats(root_dir, df):
         """Load features and coords from h5 files for all patients in the dataframe"""
+
+        # h5 files on disk 
         feats_list, files_list = [], []
-        for patient_id in tqdm(df['PATIENT'], desc="Loading features"):
-            path = Path(root_dir) / f"{patient_id}.h5"
+        for pid in tqdm(df['PATIENT'], desc="Loading features"):
+            path = Path(root_dir) / f"{pid}.h5"
             with h5py.File(path, 'r') as f:
                 feats = f['feats'][:]
                 feats_list.append(feats)
 
                 coords = f['coords'][:]
                 coords = [coord.decode('utf-8') for coord in coords]
-                full_paths = [f"{patient_id}/{coord}" for coord in coords]
-                # full_paths = []
-                # for coord in coords:
-                #     full_path = _get_full_image_path(f"{patient_id}/{coord}")
-                #     if full_path is None:
-                #         # raise FileNotFoundError(f"Image not found for {patient_id}/{coord}")
-                #         print(f"Image not found for {patient_id}/{coord}")
-                #     full_paths.append(full_path)
-
+                full_paths = [f"{pid}/{coord}" for coord in coords]
                 files_list.append(full_paths)
         return feats_list, files_list
    
